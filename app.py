@@ -1,4 +1,5 @@
 from asyncio import sleep
+from dataclasses import asdict
 
 import google.generativeai as genai
 import os
@@ -6,79 +7,52 @@ import json
 from GeminiProvider import GeminiProvider
 import paramiko
 import os
+from PlanStep import PlanStep
+from Plan import Plan
+import json
+
 
 example_steps: str = """
-  {
-    "prompt": "Install nginx if already not installed. Also point www.google.com content to /abc/",
-    "prompt_clarification": "The task is to install nginx if not already installed and configure it to serve the content of www.google.com from the /abc/ directory on the server.",
-    "response": "Sure, here is a detailed plan to accomplish this task:",
+ {
+    "prompt": "Install nginx if already not installed.",
+    "prompt_clarification": "The user wants to install nginx if it is not already installed on the system.",
+    "response": "Here is a detailed plan to accomplish this task:",
     "plan_steps": [
       {
         "step_number": 1,
-        "is_done": false,
+        "is_done": "false",
         "description": "Check if nginx is already installed.",
         "commands_to_exec": [
-          "which nginx"
+          "command -v nginx"
         ]
       },
       {
         "step_number": 2,
-        "is_done": false,
+        "is_done": "false",
         "description": "If nginx is not installed, install it.",
         "commands_to_exec": [
-          "sudo apt-get update",
-          "sudo apt-get install nginx"
+          "apt-get update",
+          "apt-get install nginx -y"
         ]
       },
       {
         "step_number": 3,
-        "is_done": false,
-        "description": "Create a new server block for www.google.com.",
+        "is_done": "false",
+        "description": "Start nginx service and check status",
         "commands_to_exec": [
-          "sudo touch /etc/nginx/sites-available/www.google.com"
-        ]
-      },
-      {
-        "step_number": 4,
-        "is_done": false,
-        "description": "Add the following content to the new server block file.",
-        "commands_to_exec": [
-          "sudo echo 'server { \\n \\tlisten 80; \\n \\tlisten [::]:80; \\n \\t server_name www.google.com; \\n \\t root /abc/; \\n \\t location / { \\n \\t \\t try_files $uri $uri/ =404; \\n \\t } \\n}' > /etc/nginx/sites-available/www.google.com"
-        ]
-      },
-      {
-        "step_number": 5,
-        "is_done": false,
-        "description": "Enable the new server block.",
-        "commands_to_exec": [
-          "sudo ln -s /etc/nginx/sites-available/www.google.com /etc/nginx/sites-enabled/www.google.com"
-        ]
-      },
-      {
-        "step_number": 6,
-        "is_done": false,
-        "description": "Restart nginx.",
-        "commands_to_exec": [
-          "sudo systemctl restart nginx"
-        ]
-      },
-      {
-        "step_number": 7,
-        "is_done": false,
-        "description": "Test the new configuration.",
-        "commands_to_exec": [
-          "curl http://www.google.com"
+          "systemctl start nginx",
+          "systemctl status nginx"
         ]
       }
     ]
   }
 """
 
-GEMINI_API_KEY = ""
-SSH_SERVER = "localhost"
+GOOGLE_API_KEY = ""
+SSH_SERVER = "192.168.0.97"
 SSH_USERNAME = "shafqat"
-SSH_KEY_PATH = "/Users/shafqat/.ssh/id_rsa"
-SUDO_PASSWORD = "whoareu"
+SSH_KEY_PATH = "C:\\Users\\shafq\\.ssh\\id_rsa"
+SUDO_PASSWORD = ""
 
 
 def prepare_prompt_from_primary(primary_prompt: str) -> str:
@@ -113,27 +87,35 @@ def prepare_prompt_from_primary(primary_prompt: str) -> str:
            """
 
 
-def prepare_prompt_for_step(stepsJson: str) -> str:
-    data = json.loads(example_steps)
-    primary_prompt = data['prompt']
-
-    return f"""
-           You are a helpful 20 year experienced linux system administrator.
-
-           The user has provided the following task:
-           '{primary_prompt}'
-
-           Based on the task, you have generated a json defining the steps to complete the task that looks like this:
-           '{stepsJson}'
-
-           All the steps that have been done are marked "is_done": "true"
 
 
 
-           """
-    pass
 
+def load_plan_from_string(json_string: str) -> Plan:
+    """
+    Load JSON data from a string and convert it into an InstallationPlan object.
+    """
+    data = json.loads(json_string)  # Convert JSON string to a Python dictionary
 
+    # Build PlanStep objects
+    steps = [PlanStep(**step_data) for step_data in data["plan_steps"]]
+
+    # Create and return an InstallationPlan object
+    return Plan(
+        prompt=data["prompt"],
+        prompt_clarification=data["prompt_clarification"],
+        response=data["response"],
+        plan_steps=steps
+    )
+
+def plan_to_json_string(plan: Plan) -> str:
+    """
+    Convert an InstallationPlan object into a JSON string.
+    """
+    # Convert the data class (and nested classes) into a dictionary
+    plan_dict = asdict(plan)
+    # Dump the dictionary as a JSON string
+    return json.dumps(plan_dict, indent=2, ensure_ascii=False)
 
 
 def open_ssh_connection(address, username, ssh_key_path):
@@ -208,44 +190,45 @@ def close_ssh_connection(ssh):
 
 def process_steps(stepsJson: str):
 
+    ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME, SSH_KEY_PATH)
     print("Plan complete. Here are the steps to complete the task:")
     print(stepsJson)
-    data = json.loads(stepsJson)
+    plan = load_plan_from_string(stepsJson)
+    for step in plan.plan_steps:
+        if (step.is_done == False):
+            all_output = ""
+            for command in step.commands_to_exec:
+                output = execute_command(ssh_client, command, SUDO_PASSWORD)
+                all_output += output
+                print(f"Output: {output}")
+                sleep(1)
 
-    for step in data['plan_steps']:
-        description = step['description']
-        commands = step['commands_to_exec']
 
-        print(f"Description: {description}")
-        print("Commands:")
-        for command in commands:
-            print(f"  - {command}")
-        print("---")
+
+def prepare_prompt_for_step(plan : Plan) -> str:
+    data = json.loads(example_steps)
+    primary_prompt = data['prompt']
+
+    return f"""
+           You are a helpful 20 year experienced linux system administrator.
+
+           The user has provided the following task:
+           '{primary_prompt}'
+
+           Based on the task, you have generated a json defining the steps to complete the task that looks like this:
+           '{stepsJson}'
+
+           All the steps that have been done are marked "is_done": "true"
+
+
+
+           """
     pass
+
+
+
 
 def print_steps(stepsJson: str):
-
-    pass
-
-
-def run_test():
-
-
-    primary_prompt = "Install nginx if already not installed. Also point www.google.com content to /abc/"
-    secondary_prompt = prepare_prompt_from_primary(primary_prompt)
-
-    print("Generating plan to complete the task ... ")
-    # Choose the provider
-    #provider = GeminiProvider(api_key=GEMINI_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
-    #generated_text = provider.generate_content(secondary_prompt)
-    process_steps(example_steps)
-
-
-
-if __name__ == "__main__":
-
-    run_test()
-    exit(0);
 
     data = json.loads(example_steps)
     for step in data['plan_steps']:
@@ -258,10 +241,33 @@ if __name__ == "__main__":
             print(f"  - {command}")
         print("---")
 
-exit(0)
+    pass
 
-ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME,SSH_KEY_PATH)
-output = execute_command(ssh_client,"sudo ls /",SUDO_PASSWORD )
-print (output)
-close_ssh_connection(ssh_client)
+
+def run_test():
+
+
+    primary_prompt = "Install nginx if already not installed."
+    secondary_prompt = prepare_prompt_from_primary(primary_prompt)
+
+    print("Generating plan to complete the task ... ")
+    # Choose the provider
+    #provider = GeminiProvider(api_key=GOOGLE_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
+    #generated_text = provider.generate_content(secondary_prompt)
+
+    action_plan = example_steps
+    process_steps(action_plan)
+
+
+
+if __name__ == "__main__":
+
+    #run_test()
+    #exit(0);
+
+
+    ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME,SSH_KEY_PATH)
+    output = execute_command(ssh_client,"sudo ls /",SUDO_PASSWORD )
+    print (output)
+    close_ssh_connection(ssh_client)
 

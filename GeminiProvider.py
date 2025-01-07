@@ -5,9 +5,9 @@ from LLMProvider import LLMProvider
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str = None):
         if api_key is None:
-            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key = os.environ.get("GOOGLE_API_KEY")
             if api_key is None:
-                raise ValueError("API key not found. Please provide it as an argument or set the GEMINI_API_KEY environment variable.")
+                raise ValueError("API key not found. Please provide it as an argument or set the GOOGLE_API_KEY environment variable.")
         self.api_key = api_key
         genai.configure(api_key=self.api_key)
 
