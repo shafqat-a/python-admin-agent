@@ -78,7 +78,7 @@ GEMINI_API_KEY = ""
 SSH_SERVER = "localhost"
 SSH_USERNAME = "shafqat"
 SSH_KEY_PATH = "/Users/shafqat/.ssh/id_rsa"
-SUDO_PASSWORD = "areuhuman"
+SUDO_PASSWORD = "whoareu"
 
 
 def prepare_prompt_from_primary(primary_prompt: str) -> str:
