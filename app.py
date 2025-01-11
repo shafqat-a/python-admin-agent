@@ -49,7 +49,7 @@ example_steps: str = """
 """
 
 GOOGLE_API_KEY = ""
-SSH_SERVER = "192.168.0.97"
+SSH_SERVER = "192.168.0.197"
 SSH_USERNAME = "shafqat"
 SSH_KEY_PATH = "C:\\Users\\shafq\\.ssh\\id_rsa"
 SUDO_PASSWORD = ""
@@ -85,11 +85,7 @@ def prepare_prompt_from_primary(primary_prompt: str) -> str:
            }}
 
            """
-
-
-
-
-
+    pass
 
 def load_plan_from_string(json_string: str) -> Plan:
     """
@@ -208,6 +204,7 @@ def process_steps(stepsJson: str):
 def prepare_prompt_for_step(plan : Plan) -> str:
     data = json.loads(example_steps)
     primary_prompt = data['prompt']
+    steps_string = get_steps_as_string(p)
 
     return f"""
            You are a helpful 20 year experienced linux system administrator.
@@ -215,8 +212,8 @@ def prepare_prompt_for_step(plan : Plan) -> str:
            The user has provided the following task:
            '{primary_prompt}'
 
-           Based on the task, you have generated a json defining the steps to complete the task that looks like this:
-           '{stepsJson}'
+           Based on the task, you have generated a detailed plan to accomplish this task. That looks like this
+           '{tasks}'
 
            All the steps that have been done are marked "is_done": "true"
 
@@ -228,19 +225,17 @@ def prepare_prompt_for_step(plan : Plan) -> str:
 
 
 
-def print_steps(stepsJson: str):
+def get_steps_as_string(steps_plan : Plan) -> str:
 
-    data = json.loads(example_steps)
-    for step in data['plan_steps']:
-        description = step['description']
-        commands = step['commands_to_exec']
-
-        print(f"Description: {description}")
-        print("Commands:")
-        for command in commands:
-            print(f"  - {command}")
-        print("---")
-
+    string_var = ""
+    for step in steps_plan.plan_steps:
+        string_var += f"Description: {step.description}"
+        if step['is_done'] == "true":
+            string_var += " ... already done"
+        else :
+            string_var += ""
+        steps_plan+= "\r\n"
+    return string_var
     pass
 
 
