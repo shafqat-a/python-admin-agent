@@ -7,6 +7,7 @@ from GeminiProvider import GeminiProvider
 import paramiko
 from PlanStep import PlanStep
 from Plan import Plan
+from StepCommand import StepCommand
 import json
 from dotenv import load_dotenv
 import os
@@ -53,7 +54,7 @@ example_steps = """
                     "description": "Update the package list."
                 },
                 {
-                    "command": "sudo apt-get install nginx",
+                    "command": "sudo apt-get install nginx -y",
                     "description": "Install Nginx."
                 }
             ]
@@ -61,6 +62,43 @@ example_steps = """
     ]
 }
 """
+
+example_steps2 = """{
+  "prompt": "Install nginx if already not installed.",
+  "prompt_clarification": "Install the Nginx web server if it's not already installed on the system.",
+  "response": "Here is a plan to install Nginx web server if already not installed on the system:",
+  "plan_steps": [
+    {
+      "step_number": 1,
+      "is_done": false,
+      "description": "Check if Nginx is already installed",
+      "commands_to_exec": [
+        {
+          "command": "which nginx",
+          "command_output": "/usr/sbin/nginx",
+          "description": "Check if the nginx command is available in the system path."
+        }
+      ]
+    },
+    {
+      "step_number": 2,
+      "is_done": false,
+      "description": "Install Nginx if not already installed",
+      "commands_to_exec": [
+        {
+          "command": "sudo apt-get update",
+          "command_output": "Hit:1 https://repo.steampowered.com/steam stable InRelease\nHit:2 https://brave-browser-apt-beta.s3.brave.com stable InRelease\nHit:3 https://brave-browser-apt-release.s3.brave.com stable InRelease\nHit:4 https://repo.nordvpn.com//deb/nordvpn/debian stable InRelease\nIgn:5 https://releases.warp.dev/linux/deb stable InRelease\nHit:6 https://releases.warp.dev/linux/deb stable Release\nHit:7 https://downloads.1password.com/linux/debian/amd64 stable InRelease\nHit:8 http://apt.pop-os.org/proprietary jammy InRelease\nHit:10 https://www.synaptics.com/sites/default/files/Ubuntu stable InRelease\nGet:11 https://download.wavebox.app/stable/linux/deb amd64/ InRelease [1,775 B]\nHit:12 http://apt.pop-os.org/release jammy InRelease\nHit:13 https://repository.mullvad.net/deb/stable jammy InRelease\nHit:14 http://apt.pop-os.org/ubuntu jammy InRelease\nHit:15 http://apt.pop-os.org/ubuntu jammy-security InRelease\nHit:16 http://apt.pop-os.org/ubuntu jammy-updates InRelease\nHit:17 http://apt.pop-os.org/ubuntu jammy-backports InRelease\nFetched 1,775 B in 4s (482 B/s)\nReading package lists...",
+          "description": "Update the package list."
+        },
+        {
+          "command": "sudo apt-get install nginx -y",
+          "command_output": "Reading package lists...\nBuilding dependency tree...\nReading state information...\nnginx is already the newest version (1.18.0-6ubuntu14.5).\nThe following packages were automatically installed and are no longer required:\n  libsamplerate0:i386 libwpe-1.0-1 libwpebackend-fdo-1.0-1\n  nvidia-firmware-550-550.54.14\nUse 'sudo apt autoremove' to remove them.\n0 upgraded, 0 newly installed, 0 to remove and 472 not upgraded.",
+          "description": "Install Nginx."
+        }
+      ]
+    }
+  ]
+}"""
 
 def prepare_prompt_from_primary(primary_prompt: str) -> str:
     return f"""
@@ -111,14 +149,20 @@ def extract_first_element_in_jsonstring_array (json_array: str) -> str:
 
 def load_plan_from_string(json_string: str) -> Plan:
     """
-    Load JSON data from a string and convert it into an InstallationPlan object.
+    Load JSON data from a string and convert it into a Plan object.
     """
     data = json.loads(json_string)  # Convert JSON string to a Python dictionary
 
-    # Build PlanStep objects
-    steps = [PlanStep(**step_data) for step_data in data["plan_steps"]]
+    # Build PlanStep objects with StepCommand objects
+    steps = []
+    for step_data in data["plan_steps"]:
+        commands = [StepCommand(command=cmd["command"], description=cmd["description"], command_output="") for cmd in step_data["commands_to_exec"]]
+        step_data_copy = step_data.copy()
+        step_data_copy["commands_to_exec"] = commands
+        step = PlanStep(**step_data_copy)
+        steps.append(step)
 
-    # Create and return an InstallationPlan object
+    # Create and return a Plan object
     return Plan(
         prompt=data["prompt"],
         prompt_clarification=data["prompt_clarification"],
@@ -161,7 +205,7 @@ def open_ssh_connection(address, username, ssh_key_path):
         return None
 
 
-def execute_command(ssh, command, sudo_password=None):
+def execute_command(ssh, command, sudo_password=None)-> str:
     """
     Executes a command on the remote server using the established SSH connection.
     If the command requires sudo, it automatically provides the sudo password using the `echo "password" | sudo -S` scheme.
@@ -190,7 +234,7 @@ def execute_command(ssh, command, sudo_password=None):
 
         if error:
             print(f"Error: {error}")
-        return output
+        return output.strip()
     except Exception as e:
         print(f"Failed to execute command: {e}")
         return None
@@ -206,27 +250,33 @@ def close_ssh_connection(ssh):
         ssh.close()
         print("SSH connection closed.")
 
-def process_steps(plan: Plan):
+def process_steps(plan: Plan, provider :GeminiProvider):
 
-    #ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME, SSH_KEY_PATH)
+    ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME, SSH_KEY_PATH)
     for step in plan.plan_steps:
         if (step.is_done == False):
-            step_prompt = prepare_prompt_for_step(plan, step)
-            print("Step Prompt:" + step_prompt)
             all_output = ""
             for command in step.commands_to_exec:
-                #output = execute_command(ssh_client, command, SUDO_PASSWORD)
-                #all_output += output
-                #print(f"Output: {output}")
+                print(f"Executing command: {command.command}")
+                command_output  = execute_command(ssh_client, command.command, SUDO_PASSWORD)
+                print(command_output)
+                command.command_output = command_output
                 sleep(1)
 
+            step_prompt = prepare_prompt_for_step(plan, step, provider)
+            print(step_prompt)
+            step_response = provider.generate_content(step_prompt)
+            print(step_response)
+    close_ssh_connection(ssh_client)
 
 
-def prepare_prompt_for_step(plan : Plan, step : PlanStep) -> str:
+def prepare_prompt_for_step(plan : Plan, step : PlanStep, provider : GeminiProvider) -> str:
 
     steps_string = get_steps_as_string(plan)
     json_steps = plan_to_json_string(plan)
-
+    command_output_string = ""
+    for cmd in step.commands_to_exec:
+        command_output_string += f"{cmd.command}:\r\n=================================\r\n{cmd.command_output}\r\n"
     return f"""
 You are a helpful 20 year experienced linux system administrator.
 
@@ -235,10 +285,24 @@ The user has provided the following task: '{plan.prompt}'
 Based on the task, you have generated a detailed plan to accomplish this task. That looks like this
 '{steps_string}'
 
+Now we are going to proceed with step {step.step_number} which is: '{step.description}'. The commands
+were executed and their output are as follows:
+{command_output_string}
+
 Based on the execution and output of the commands of the plan the following json stores the status of the steps.
 JSON
 ----
 {json_steps}
+-
+If you think the step is completed the return true in JSON reply else return false and what command to correct and
+complete the step. Please strictly use the JSON format shown below to reply.
+
+REPLY_JSON
+----------
+{{
+    "success": False,
+    "corrective_action": "command to correct and complete the step based on output of the commands",
+}}
 
 """
     pass
@@ -288,8 +352,8 @@ def run_test():
     secondary_prompt = prepare_prompt_from_primary(primary_prompt)
 
     print("Generating plan to complete the task ... ")
-    # Choose the provider
-    #provider = GeminiProvider(api_key=GOOGLE_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
+    #Choose the provider
+    provider = GeminiProvider(api_key=GOOGLE_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
     #generated_text = provider.generate_content(secondary_prompt)
     #print(generated_text)
     generated_text = example_steps
@@ -299,7 +363,10 @@ def run_test():
 
     print("Generated plan:" + get_steps_as_string(main_plan))
 
-    process_steps(main_plan)
+    process_steps(main_plan, provider)
+
+    planstring = plan_to_json_string(main_plan)
+    print(planstring)
 
 
 
