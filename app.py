@@ -192,35 +192,35 @@ def process_steps(stepsJson: str):
     plan = load_plan_from_string(stepsJson)
     for step in plan.plan_steps:
         if (step.is_done == False):
+            steps_string = get_steps_as_string(plan);
+            print(steps_string)
             all_output = ""
             for command in step.commands_to_exec:
-                output = execute_command(ssh_client, command, SUDO_PASSWORD)
-                all_output += output
-                print(f"Output: {output}")
-                sleep(1)
+                print(f"Executing command: {command}")
+                #output = execute_command(ssh_client, command, SUDO_PASSWORD)
+                #all_output += output
+                #print(f"Output: {output}")
+                #sleep(1)
+
 
 
 
 def prepare_prompt_for_step(plan : Plan) -> str:
-    data = json.loads(example_steps)
-    primary_prompt = data['prompt']
-    steps_string = get_steps_as_string(p)
 
-    return f"""
+    var_ret = f"""
            You are a helpful 20 year experienced linux system administrator.
 
            The user has provided the following task:
-           '{primary_prompt}'
+           '{plan.prompt}'
 
            Based on the task, you have generated a detailed plan to accomplish this task. That looks like this
-           '{tasks}'
 
            All the steps that have been done are marked "is_done": "true"
 
 
 
            """
-    pass
+    return var_ret
 
 
 
@@ -247,18 +247,18 @@ def run_test():
 
     print("Generating plan to complete the task ... ")
     # Choose the provider
-    #provider = GeminiProvider(api_key=GOOGLE_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
-    #generated_text = provider.generate_content(secondary_prompt)
+    provider = GeminiProvider(api_key=GOOGLE_API_KEY)  # or OpenAIProvider(api_key="your_openai_api_key_here")
+    generated_text = provider.generate_content(secondary_prompt)
 
-    action_plan = example_steps
+    action_plan = load_plan_from_string(example_steps)
     process_steps(action_plan)
 
 
 
 if __name__ == "__main__":
 
-    #run_test()
-    #exit(0);
+    run_test()
+    exit(0);
 
 
     ssh_client = open_ssh_connection(SSH_SERVER, SSH_USERNAME,SSH_KEY_PATH)
